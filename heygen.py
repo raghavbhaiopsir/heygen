@@ -188,6 +188,15 @@ def run_secure_automation(message, status_msg, email_address, user_id, today, is
             
             time.sleep(6) 
 
+            # --- NAYA SCREENSHOT FEATURE YAHAN HAI ---
+            try:
+                bot.edit_message_text("📸 Screen capture kar rahe hain...", chat_id=message.chat.id, message_id=status_msg.message_id)
+                screenshot = driver.get_screenshot_as_png()
+                bot.send_photo(message.chat.id, screenshot, caption="👀 Yeh dekho, bot ki screen par abhi yeh dikh raha hai:")
+            except Exception as e:
+                print("Screenshot error:", e)
+            # ------------------------------------------
+
             # FINAL ERROR DETECTION
             page_source = driver.page_source.lower()
             if "potential spam" in page_source or "flagged" in page_source:
