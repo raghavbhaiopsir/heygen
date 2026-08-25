@@ -1,6 +1,6 @@
 FROM python:3.10-slim
 
-# Maine yahan se libgconf-2-4 hata diya hai
+# Step 1: Zaroori tools install karein
 RUN apt-get update && apt-get install -y \
     wget \
     gnupg \
@@ -15,12 +15,14 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
-    && sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list' \
+# Step 2: Seedha Chrome ki .deb file download karke install karein (No apt-key error!)
+RUN wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
     && apt-get update \
-    && apt-get install -y google-chrome-stable \
+    && apt-get install -y ./google-chrome-stable_current_amd64.deb \
+    && rm google-chrome-stable_current_amd64.deb \
     && rm -rf /var/lib/apt/lists/*
 
+# Step 3: Bot setup karein
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
