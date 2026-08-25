@@ -12,12 +12,10 @@ from datetime import datetime, timedelta
 
 # ================= FINAL CONFIGURATION =================
 BOT_TOKEN = '8914817026:AAHx_oSpUrJ6QWfSYqoJEse8FgTB2cGr2Dc'
-ADMIN_ID = 6860106371  # ⚠️ YAHAN APNA ASLI TELEGRAM USER ID DAALEIN (Numbers mein)
+ADMIN_ID = 6860106371  # ⚠️ APNA ASLI TELEGRAM USER ID
 
 # Channels jahan join karwana hai
 REQUIRED_CHATS = ["@findyourskills", "@sabkijayhokhush", "@rosekhudkabanaya"]
-
-# Server crash rokle ke liye (Max 3 browsers at a time)
 browser_semaphore = threading.Semaphore(3) 
 # =======================================================
 
@@ -36,15 +34,6 @@ cursor.execute('''
 ''')
 conn.commit()
 
-def get_user_data(user_id):
-    cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
-    row = cursor.fetchone()
-    if not row:
-        cursor.execute("INSERT INTO users (user_id) VALUES (?)", (user_id,))
-        conn.commit()
-        return (user_id, 0, "", "")
-    return row
-
 def check_force_sub(user_id):
     for chat in REQUIRED_CHATS:
         try:
@@ -62,14 +51,24 @@ def send_welcome(message):
     user_id = message.from_user.id
     text = message.text.split()
     
-    # Check Referral Logic
+    # Check if user already exists in DB BEFORE giving referral credit
+    cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
+    user_exists = cursor.fetchone()
+    
+    # Referral Logic
     if len(text) > 1:
         referrer_id = text[1]
         try:
             referrer_id = int(referrer_id)
             if referrer_id != user_id:
-                cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
-                if not cursor.fetchone():
+                if user_exists:
+                    # User already joined before
+                    try:
+                        bot.send_message(referrer_id, "⚠️ *Referral Failed:* Jis user ko aapne invite kiya, woh pehle se hamare bot/channels mein juda hua hai. Isliye referral count nahi hoga.", parse_mode="Markdown")
+                    except:
+                        pass
+                else:
+                    # Valid New Referral
                     cursor.execute("UPDATE users SET referrals = referrals + 1 WHERE user_id = ?", (referrer_id,))
                     conn.commit()
                     try:
@@ -79,7 +78,10 @@ def send_welcome(message):
         except:
             pass
 
-    get_user_data(user_id)
+    # If new user, register them
+    if not user_exists:
+        cursor.execute("INSERT INTO users (user_id) VALUES (?)", (user_id,))
+        conn.commit()
     
     bot_username = bot.get_me().username
     ref_link = f"https://t.me/{bot_username}?start={user_id}"
@@ -87,19 +89,62 @@ def send_welcome(message):
     welcome_msg = (
         "🔥 *HEYGEN PREMIUM BOT* 🔥\n\n"
         "Welcome dost! Is bot se aap HeyGen magic links bhej sakte hain.\n\n"
-        "🎁 *FREE PLAN:* 1 Link per day.\n"
-        "👑 *UNLIMITED PLAN:* 5 Dosto ko refer karein aur 24 hours ke liye Unlimited access payein!\n\n"
+        "👑 *PREMIUM PLAN:* 10 Dosto ko refer karein aur *4 Hours* ke liye Unlimited access payein!\n\n"
         f"🔗 *Aapka Referral Link:* `{ref_link}`\n\n"
-        "👉 *Use kaise karein:* `/heygen target@email.com`"
+        "👉 *Use kaise karein:* `/heygen target@email.com`\n\n"
+        "*(Note: Agar koi user pehle se bot mein hai, toh uska referral count nahi hoga)*"
     )
     bot.reply_to(message, welcome_msg, parse_mode='Markdown')
 
+# --- ADMIN DASHBOARD & BROADCAST ---
+@bot.message_handler(commands=['admin'])
+def admin_dashboard(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    cursor.execute("SELECT COUNT(*) FROM users")
+    total_users = cursor.fetchone()[0]
+    
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cursor.execute("SELECT COUNT(*) FROM users WHERE premium_until > ?", (now_str,))
+    premium_users = cursor.fetchone()[0]
+    
+    dash_msg = (
+        "👑 *ADMIN DASHBOARD* 👑\n\n"
+        f"👥 *Total Users:* `{total_users}`\n"
+        f"💎 *Active Premium Users:* `{premium_users}`\n\n"
+        "👉 *Broadcast Command:* `/broadcast Hello everyone!`"
+    )
+    bot.reply_to(message, dash_msg, parse_mode="Markdown")
+
+@bot.message_handler(commands=['broadcast'])
+def admin_broadcast(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    text = message.text.replace("/broadcast", "").strip()
+    if not text:
+        bot.reply_to(message, "⚠️ Format: `/broadcast Aapka message yahan`", parse_mode="Markdown")
+        return
+    
+    bot.reply_to(message, "⏳ Broadcast shuru ho gaya hai...")
+    cursor.execute("SELECT user_id FROM users")
+    users = cursor.fetchall()
+    sent = 0
+    for u in users:
+        try:
+            bot.send_message(u[0], f"📢 *Admin Message:*\n\n{text}", parse_mode="Markdown")
+            sent += 1
+        except:
+            pass
+    bot.reply_to(message, f"✅ Broadcast Complete! {sent} users ko message bhej diya gaya.")
+
+# --- HEYGEN MAIN COMMAND ---
 @bot.message_handler(commands=['heygen'])
 def handle_heygen(message):
     user_id = message.from_user.id
     is_admin = (user_id == ADMIN_ID)
     
-    # 1. Check Force Sub (Admin bypassed)
+    # 1. Force Sub
     if not is_admin and not check_force_sub(user_id):
         markup = InlineKeyboardMarkup()
         markup.row(InlineKeyboardButton("Join Channel 1", url="https://t.me/findyourskills"))
@@ -108,16 +153,20 @@ def handle_heygen(message):
         bot.reply_to(message, "❌ *Pehle hamare channels join karein tabhi bot chalega!* 👇", reply_markup=markup, parse_mode="Markdown")
         return
 
-    # 2. Extract Email
     try:
         email_address = message.text.split()[1].strip()
     except IndexError:
         bot.reply_to(message, "⚠️ *Error:* Email nahi dala.\n👉 *Format:* `/heygen email@gmail.com`", parse_mode='Markdown')
         return
 
-    # 3. Check Daily Limit & Premium Status
-    _, referrals, last_used_date, premium_until = get_user_data(user_id)
-    today = datetime.now().strftime("%Y-%m-%d")
+    # 2. Premium Status Check
+    cursor.execute("SELECT referrals, premium_until FROM users WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    if row:
+        referrals, premium_until = row
+    else:
+        referrals, premium_until = 0, ""
+        
     is_premium = False
 
     if is_admin:
@@ -131,23 +180,25 @@ def handle_heygen(message):
                 cursor.execute("UPDATE users SET premium_until = '' WHERE user_id = ?", (user_id,))
                 conn.commit()
 
-        # Claim Premium Logic
-        if not is_premium and referrals >= 5:
-            new_prem_until = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
-            cursor.execute("UPDATE users SET referrals = referrals - 5, premium_until = ? WHERE user_id = ?", (new_prem_until, user_id))
+        # Claim 4 Hours Premium if they have 10 referrals
+        if not is_premium and referrals >= 10:
+            new_prem_until = (datetime.now() + timedelta(hours=4)).strftime("%Y-%m-%d %H:%M:%S")
+            cursor.execute("UPDATE users SET referrals = referrals - 10, premium_until = ? WHERE user_id = ?", (new_prem_until, user_id))
             conn.commit()
             is_premium = True
-            bot.send_message(user_id, "🎊 *CONGRATULATIONS!* Aapne 5 refers kar liye hain! Agle 24 ghante ke liye *UNLIMITED* access mil gaya hai!", parse_mode="Markdown")
+            bot.send_message(user_id, "🎊 *CONGRATULATIONS!* Aapne 10 refers kar liye hain! Agle *4 Ghante* ke liye Unlimited access mil gaya hai!", parse_mode="Markdown")
 
-        # Limit logic for Free Users
-        if not is_premium and last_used_date == today:
-            bot.reply_to(message, "❌ *Daily Limit Reached!*\nFree users sirf 1 email per day bhej sakte hain.\n\n👑 *Unlimited chahiye?* 5 dosto ko apna referral link share karein!", parse_mode="Markdown")
+        # Block if no premium
+        if not is_premium:
+            cursor.execute("SELECT referrals FROM users WHERE user_id = ?", (user_id,))
+            current_refs = cursor.fetchone()[0]
+            bot.reply_to(message, f"❌ *Premium Required!*\nIs bot ka free plan khatam ho chuka hai.\n\nHeyGen use karne ke liye 10 dosto ko refer karein. \nAapke current referrals: {current_refs}/10", parse_mode="Markdown")
             return
 
     status_msg = bot.reply_to(message, "⚙️ Request Process ho rahi hai. Kripya wait karein...", parse_mode='Markdown')
-    threading.Thread(target=run_secure_automation, args=(message, status_msg, email_address, user_id, today, is_premium, is_admin)).start()
+    threading.Thread(target=run_secure_automation, args=(message, status_msg, email_address, user_id, is_premium, is_admin)).start()
 
-def run_secure_automation(message, status_msg, email_address, user_id, today, is_premium, is_admin):
+def run_secure_automation(message, status_msg, email_address, user_id, is_premium, is_admin):
     with browser_semaphore:
         bot.edit_message_text("🔄 Secure Browser Start ho raha hai...", chat_id=message.chat.id, message_id=status_msg.message_id)
         
@@ -188,14 +239,12 @@ def run_secure_automation(message, status_msg, email_address, user_id, today, is
             
             time.sleep(6) 
 
-            # --- NAYA SCREENSHOT FEATURE YAHAN HAI ---
+            # SCREENSHOT FEATURE
             try:
-                bot.edit_message_text("📸 Screen capture kar rahe hain...", chat_id=message.chat.id, message_id=status_msg.message_id)
                 screenshot = driver.get_screenshot_as_png()
-                bot.send_photo(message.chat.id, screenshot, caption="👀 Yeh dekho, bot ki screen par abhi yeh dikh raha hai:")
+                bot.send_photo(message.chat.id, screenshot, caption="👀 Screen par abhi yeh dikh रहा hai:")
             except Exception as e:
-                print("Screenshot error:", e)
-            # ------------------------------------------
+                pass
 
             # FINAL ERROR DETECTION
             page_source = driver.page_source.lower()
@@ -203,8 +252,8 @@ def run_secure_automation(message, status_msg, email_address, user_id, today, is
                 raise Exception("Spam Alert: HeyGen ne is email ko block kar diya hai. Koi dusra email try karein.")
             elif "try again after 1 minute" in page_source:
                 raise Exception("Rate Limit: HeyGen par limit lag gayi hai. 1 minute baad try karein.")
-            elif "please try again" in page_source or "suspicious" in page_source:
-                raise Exception("HeyGen Error: Request fail ho gayi, kripya thodi der baad try karein!")
+            elif "please try again" in page_source or "suspicious" in page_source or "cloudflare" in page_source:
+                raise Exception("HeyGen/Cloudflare Error: Request block ho gayi, IP issue ya Captcha.")
 
             # SUCCESS
             bot.edit_message_text(
@@ -215,11 +264,6 @@ def run_secure_automation(message, status_msg, email_address, user_id, today, is
                 message_id=status_msg.message_id, 
                 parse_mode='Markdown'
             )
-            
-            # Update Limit
-            if not is_premium and not is_admin:
-                cursor.execute("UPDATE users SET last_used_date = ? WHERE user_id = ?", (today, user_id))
-                conn.commit()
 
             # ADMIN ALERT
             if not is_admin:
