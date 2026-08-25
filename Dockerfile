@@ -1,11 +1,11 @@
 FROM python:3.10-slim
 
+# Maine yahan se libgconf-2-4 hata diya hai
 RUN apt-get update && apt-get install -y \
     wget \
     gnupg \
     unzip \
     xvfb \
-    libgconf-2-4 \
     libnss3 \
     libxss1 \
     libasound2 \
