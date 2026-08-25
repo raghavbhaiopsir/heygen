@@ -1,0 +1,14 @@
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual environment (agar aapne PC mein banaya ho)
+venv/
+env/
+
+# Database file (Taaki local testing ka data server par na jaye)
+bot_data.db
+bot_data.db-journal
+
+# Secrets
+.env
